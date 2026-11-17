@@ -17,7 +17,8 @@ type (
 	}
 
 	PerMessageDeflate struct {
-		Threshold int `json:"threshold,omitempty" msgpack:"threshold,omitempty"`
+		Threshold       int  `json:"threshold,omitempty" msgpack:"threshold,omitempty"`
+		ContextTakeover bool `json:"context_takeover,omitempty" msgpack:"context_takeover,omitempty"`
 	}
 )
 

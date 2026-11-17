@@ -13,6 +13,7 @@ require (
 )
 
 require (
+	github.com/coder/websocket v1.8.14 // indirect
 	github.com/dunglas/httpsfv v1.1.1 // indirect
 	github.com/gookit/color v1.6.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect

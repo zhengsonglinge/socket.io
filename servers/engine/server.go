@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	coder "github.com/coder/websocket"
 	"github.com/gorilla/websocket"
 	"github.com/quic-go/webtransport-go"
 	"github.com/zishang520/socket.io/parsers/engine/v3/packet"
@@ -127,6 +128,36 @@ func (s *server) HandleUpgrade(ctx *types.HttpContext) {
 		}
 
 		wsc := &types.WebSocketConn{EventEmitter: types.NewEventEmitter()}
+		if deflate := s.Opts().PerMessageDeflate(); deflate != nil && deflate.ContextTakeover {
+			threshold := deflate.Threshold
+			if threshold == 0 {
+				threshold = -1
+			} // coder uses zero as its default, while Engine.IO uses it for all messages.
+			acceptOptions := &coder.AcceptOptions{CompressionMode: coder.CompressionContextTakeover, CompressionThreshold: threshold}
+			if cors := s.Opts().Cors(); cors != nil && cors.Origin != nil {
+				origin := ctx.Request().Header.Get("Origin")
+				if origin != "" && !cors.IsOriginAllowed(origin, cors.Origin) {
+					s.emitAbortRequest(ctx, BAD_REQUEST, map[string]any{"name": "UPGRADE_FAILURE"})
+					return
+				}
+				acceptOptions.InsecureSkipVerify = true // The configured CORS policy was checked above.
+			}
+			for key, values := range ctx.ResponseHeaders().All() {
+				for _, value := range values {
+					ctx.Response().Header().Add(key, value)
+				}
+			}
+			conn, err := coder.Accept(ctx.Response(), ctx.Request(), acceptOptions)
+			if err != nil {
+				serverLog.Debug("websocket upgrade error: %s", err.Error())
+				return
+			}
+			conn.SetReadLimit(s.Opts().MaxHttpBufferSize())
+			wsc.Coder = conn
+			wsc.RemoteAddress = ctx.Request().RemoteAddr
+			s.onWebSocket(ctx, wsc)
+			return
+		}
 
 		ws := &websocket.Upgrader{
 			ReadBufferSize:    DefaultWSReadBufferSize,
@@ -457,7 +488,11 @@ func abortUpgrade(ctx *types.HttpContext, codeMessage *types.CodeMessage, errorC
 
 	if ctx.Websocket != nil {
 		defer func() { _ = ctx.Websocket.Close() }()
-		_ = ctx.Websocket.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, message))
+		if ctx.Websocket.Coder != nil {
+			_ = ctx.Websocket.Coder.Close(coder.StatusNormalClosure, message)
+		} else {
+			_ = ctx.Websocket.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, message))
+		}
 	} else if ctx.WebTransport != nil {
 		_ = ctx.WebTransport.CloseWithError(http.StatusBadRequest, message)
 	} else {

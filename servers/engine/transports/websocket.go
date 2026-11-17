@@ -2,11 +2,13 @@
 package transports
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
 	"time"
 
+	coder "github.com/coder/websocket"
 	ws "github.com/gorilla/websocket"
 	"github.com/zishang520/socket.io/parsers/engine/v3/packet"
 	"github.com/zishang520/socket.io/v3/pkg/log"
@@ -83,6 +85,10 @@ func (w *websocket) _error(err error) {
 
 // Receiving Messages
 func (w *websocket) message() {
+	if w.socket.Coder != nil {
+		w.messageCoder()
+		return
+	}
 	// Guarantee cleanup on any exit path — covers errors that _error()
 	// routes as "error" (not "close") on the socket and any future paths
 	// that return without calling _error at all.
@@ -128,6 +134,36 @@ func (w *websocket) message() {
 		}
 		if c, ok := message.(io.Closer); ok {
 			_ = c.Close()
+		}
+	}
+}
+
+func (w *websocket) messageCoder() {
+	defer func() {
+		if !w.writeQueue.IsShuttingDown() {
+			w.socket.Emit("close")
+		}
+	}()
+	for {
+		ctx := context.Background()
+		cancel := func() {}
+		if w.idleTimeout > 0 {
+			ctx, cancel = context.WithTimeout(ctx, w.idleTimeout)
+		}
+		kind, data, err := w.socket.Coder.Read(ctx)
+		cancel()
+		if err != nil {
+			if coder.CloseStatus(err) != -1 || errors.Is(err, net.ErrClosed) {
+				w.socket.Emit("close")
+			} else {
+				w.socket.Emit("error", err)
+			}
+			return
+		}
+		if kind == coder.MessageText {
+			w.onMessage(types.NewStringBuffer(data))
+		} else if kind == coder.MessageBinary {
+			w.onMessage(types.NewBytesBuffer(data))
 		}
 	}
 }
@@ -196,6 +232,17 @@ func (w *websocket) write(data types.BufferInterface, compress bool) {
 		}
 	}
 	wsLog.Debug(`writing %#v`, data)
+	if w.socket.Coder != nil {
+		kind := coder.MessageBinary
+		if _, ok := data.(*types.StringBuffer); ok {
+			kind = coder.MessageText
+		}
+		err := w.socket.Coder.Write(context.Background(), kind, data.Bytes())
+		if err != nil {
+			w._error(err)
+		}
+		return
+	}
 
 	w.socket.EnableWriteCompression(compress)
 	mt := ws.BinaryMessage
