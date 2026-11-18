@@ -5,6 +5,7 @@ go 1.26.0
 require github.com/zishang520/socket.io/v3 v3.0.6
 
 require (
+	github.com/coder/websocket v1.8.15 // indirect
 	github.com/dunglas/httpsfv v1.1.1 // indirect
 	github.com/gookit/color v1.6.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect

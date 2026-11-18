@@ -12,6 +12,7 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.2.4 // indirect
+	github.com/coder/websocket v1.8.15 // indirect
 	github.com/dunglas/httpsfv v1.1.1 // indirect
 	github.com/gookit/color v1.6.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
